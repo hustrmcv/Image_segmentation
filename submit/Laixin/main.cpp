@@ -6,9 +6,17 @@
 using namespace cv;
 using namespace std;
 int threshold_type=1;
-int threshold_value=150,size_=25;
+int threshold_value=150,size_=25,length_min=100;
 int compensation=50,judge=0.95;
-Mat src,src_binary;
+Mat src,src_binary,src_gray,src_edge,dstIMAGE;
+double getDistance (CvPoint pointO,CvPoint pointA )
+{
+    double distance;
+    distance = powf((pointO.x - pointA.x),2) + powf((pointO.y - pointA.y),2);
+    distance = sqrtf(distance);
+
+    return distance;
+}
 void Thres_hold(int, void*)
 {
       int i,j;
@@ -391,24 +399,148 @@ void multiple_binary_real(void)
       imshow("二值化后的图像",src_binary);
 }
 
+//纸张分割
+void paper_segment(int,void *){
+      vector <Vec4i> lines,hierarchy;
+      vector<Vec4i> lines1,lines2;  //依据斜率将直线分成两部分存储
+      vector<vector<Point> > contours;
+      vector<Point> points;
+      int i,j,x,y;
+      cvtColor(src,src_gray,CV_BGR2GRAY);
+      blur( src_gray,src_gray, Size(3,3));
+      Canny(src_gray,src_edge,150,200,3); //利用CANNY算子提取图片轮廓信息
+      findContours(src_edge,contours,hierarchy,CV_RETR_LIST,CV_CHAIN_APPROX_NONE, Point(0, 0));
+      cvtColor(src_edge,dstIMAGE, CV_GRAY2BGR);//转化边缘检测后的图为灰度图
+      dstIMAGE=Scalar::all(0);
+      HoughLinesP(src_edge,lines,1,CV_PI/180,80,length_min,10);
+      Vec4i L=lines[0];
+       line( dstIMAGE, Point(L[0], L[1]), Point(L[2], L[3]), Scalar(100,255,200), 1, CV_AA);
+      float k0=((float)(L[3]-L[1]))/(L[2]-L[0]);
+      for( size_t i = 1; i < lines.size(); i++ )
+      {
+        Vec4i l = lines[i];
+        if((((float)(l[3]-l[1]))/(l[2]-l[0]))<-0.8||(((float)(l[3]-l[1]))/(l[2]-l[0]))>0.8){
+        line(dstIMAGE, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(186,88,255), 1, CV_AA);
+        lines1.push_back(l);}
+        else {lines2.push_back(l);
+              line( dstIMAGE, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(255,150,150), 1, CV_AA);}
+      }
+
+      cout<<lines1.size()<<'\t'<<lines2.size()<<endl;
+      Vec4i L1,L2;
+      float k1,k2,b1,b2;
+      for(i=0;i<lines1.size();i++){
+            L1=lines1[i];
+            for(j=0;j<lines2.size();j++){
+                  L2=lines2[j];
+                  b1=(L1[2]*L1[1]-L1[0]*L1[3])/(float)(L1[2]-L1[0]);
+                  b2=(L2[2]*L2[1]-L2[0]*L2[3])/(float)(L2[2]-L2[0]);
+                  k1=(float)(L1[3]-L1[1])/(L1[2]-L1[0]);
+                  k2=(float)(L2[3]-L2[1])/(L2[2]-L2[0]);
+                  x=(int)(b1-b2)/(k2-k1);
+                  y=(int)(k1*x+b1);
+                  if(x>=0&&x<dstIMAGE.cols&&y>=0&&y<=dstIMAGE.rows-1)
+                  {      points.push_back(Point(x,y));
+                        }
+            }
+      }
+      //由点的密集程度来提取角点
+      int density[points.size()],state_density;
+      vector<int> label;
+      int density_max=0,i_max=0;
+      for(i=0;i<points.size();i++) density[i]=0;
+      for(i=0;i<points.size();i++){
+            for(j=0;j<points.size();j++){
+                  if(getDistance(points[i],points[j])<10) density[i]++;
+            }
+      }
+      if(points.size()>=4){
+      while(label.size()<4) {
+            for(i=0;i<points.size();i++)
+            {
+                  state_density=1;
+                  for(j=0;j<label.size();j++)
+                  if(i==label[j]||getDistance(points[label[j]],points[i])<length_min) state_density=0;
+                  if(density[i]>density_max&&state_density)
+                  {density_max=density[i];i_max=i;}
+                  }
+                  label.push_back(i_max);
+                  cout<<i_max<<endl;
+                  density_max=0;
+      }
+      cout<<getDistance(points[0],points[4])<<endl;
+      for(i=0;i<label.size();i++)
+      {
+            cout<<label[i]<<endl;
+            circle(dstIMAGE,points[label[i]],4,Scalar(180,255,100),1);
+      }
+      if(label.size()==4){
+      //确定四个角点的位置
+      Point2f center;
+      for(i=0;i<4;i++){
+            center.x+=points[label[i]].x;
+            center.y+=points[label[i]].y;
+      }
+      center.x/=4;
+      center.y/=4;
+      vector<Point2f> top,buttom;
+      Point2f tl,tr,bl,br;
+      for(i=0;i<4;i++){
+            if(center.y>points[label[i]].y) top.push_back(points[label[i]]);
+            else buttom.push_back(points[label[i]]);
+      }
+      if(top[0].x<top[1].x) {tl=top[0];tr=top[1];}
+      else {tl=top[1];tr=top[0];}
+      if(buttom[0].x<buttom[1].x) {bl=buttom[0];br=buttom[1];}
+      else {bl=buttom[1];br=buttom[0];}
+      //构造变换矩阵
+      vector<Point2f> quad_pts,corners;
+      corners.push_back(Point2f(tl));
+      corners.push_back(Point2f(tr));
+      corners.push_back(Point2f(br));
+      corners.push_back(Point2f(bl));
+
+      Mat quad = Mat::zeros(src.size(),CV_8UC3);
+      quad_pts.push_back(Point2f(0, 0));
+      quad_pts.push_back(Point2f(quad.cols, 0));
+      quad_pts.push_back(Point2f(quad.cols, quad.rows));
+      quad_pts.push_back(Point2f(0, quad.rows));
+
+      Mat transmtx = getPerspectiveTransform(corners, quad_pts);
+      warpPerspective(src, quad, transmtx, quad.size());
+      imshow("提取的纸张",quad);
+      }
+      else cout<<"无法识别纸张"<<endl;
+   }
+      else cout<<"无法识别纸张"<<endl;
+      imshow("霍夫变换", dstIMAGE);
+      waitKey(0);
+}
+
 int main()
 {
       int way;
       cout<<"按1手动确定阈值，按2利用大津法自动确定阈值"<<endl;
       cout<<"按3局部自适应确定阈值，按4局部自适应确定阈值（优化）"<<endl;
       cout<<"按5三阈值分割,按6多阈值自适应分割"<<endl;
+      cout<<"按7提取纸张（基于轮廓与角点），按8提取数字（利用局部自适应二值化)"<<endl;
       cin>>way;
-      src=imread("5.jpg",1);
+      src=imread("提取数字2.jpg",1);
       imshow("原图",src);
-      namedWindow("二值化后的图像",WINDOW_AUTOSIZE);
+      if(way<=6) namedWindow("二值化后的图像",WINDOW_AUTOSIZE);
       if(way==1){
       createTrackbar("阈值","二值化后的图像",&threshold_value,255,Thres_hold);
       Thres_hold(0,0);}
       else if(way==2) find_binary_value();
-      else if(way==4) {createTrackbar("补偿值","二值化后的图像",&compensation,30,part_adapt_binary);
+      else if(way==4||way==8) {createTrackbar("补偿值","二值化后的图像",&compensation,70,part_adapt_binary);
       createTrackbar("局部尺寸","二值化后的图像",&size_,100,part_adapt_binary);part_adapt_binary(0,0);}
       else if(way==3) part_adapt_binary_0();
       else if(way==5) multiple_binary();
       else if(way==6) multiple_binary_real();
+      else if(way==7) {namedWindow("霍夫变换",WINDOW_AUTOSIZE);
+                       createTrackbar("轮廓阈值","霍夫变换",&length_min,150,paper_segment);
+                       paper_segment(0,0);
+                      }
       waitKey(0);
+      destroyWindow("二值化后的图像");
 }
