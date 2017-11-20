@@ -1,0 +1,26 @@
+#include<iostream>
+#include<opencv2/opencv.hpp>
+#include<highgui.hpp>
+
+using namespace cv;
+using namespace std;
+
+void main()
+{
+	int threshold_value = 100;
+	Mat src, dst;
+	int i, j;
+	src = imread("1.tif");
+	imshow("原始图", src);
+	cvtColor(src, dst, CV_BGR2GRAY);
+	for (i = 0; i < dst.rows; ++i)
+	{
+		for (j = 0; j < dst.cols; ++j)
+		{
+			if (dst.at<uchar>(i, j) >= threshold_value) dst.at<uchar>(i, j) = 255;
+			else dst.at<uchar>(i, j) = 0;
+		}
+	}
+	imshow("固定阈值", dst);
+	
+}

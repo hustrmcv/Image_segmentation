@@ -1,0 +1,74 @@
+#include <opencv2/opencv.hpp>
+#include <iostream>
+using namespace std;
+using namespace cv;
+
+double Otsu(Mat&image) {
+
+	int threshold = 0;
+	double maxVariance = 0;
+	double w0 = 0, w1 = 0;//前景与背景像素点所占比例
+	double u0 = 0, u1 = 0;//前景与背景像素值平均灰度
+	double histogram[256] = { 0 };
+	double Num = image.cols*image.rows;
+	//统计256个bin，每个bin像素的个数
+	for (int i = 0; i<image.rows; i++) {
+		const uchar * p = image.ptr<uchar>(i);
+		for (int j = 0; j<image.cols; j++) {
+			histogram[int(*p++)]++; //cout<<"Histogram[data[i*image.step+j]]++:;"<<histogram[int(*p++)]++<<endl; 
+		}
+	}
+	//前景像素统计
+	for (int i = 0; i<255; i++) {
+		w0 = 0;
+		w1 = 0;
+		u0 = 0;
+		u1 = 0;
+		for (int j = 0; j <= i; j++) {
+			w0 = w0 + histogram[j];//以i为阈值，统计前景像素个数
+			u0 = u0 + j*histogram[j];//以i为阈值，统计前景像素灰度总和
+		}
+		w0 = w0 / Num; u0 = u0 / w0;
+
+		//背景像素统计
+		for (int j = i + 1; j <= 255; j++) {
+			w1 = w1 + histogram[j];//以i为阈值，统计前景像素个数
+			u1 = u1 + j*histogram[j];//以i为阈值，统计前景像素灰度总和
+		}
+		w1 = w1 / Num; u1 = u1 / w1;
+		double variance = w0*w1*(u1 - u0)*(u1 - u0); //当前类间方差计算
+		if (variance > maxVariance)
+		{
+			maxVariance = variance;
+			threshold = i;
+		}
+	}
+	cout << "threshold:" << threshold << endl;
+	return threshold;
+}
+
+int main()
+{
+	Mat img = imread("1.tif");
+	Mat img1,src;
+	img.copyTo(src);
+	img.copyTo(img1);
+	cvtColor(img, img, CV_BGR2GRAY);
+	cvtColor(img1, img1, CV_BGR2GRAY);
+	double th = Otsu(img);
+	cout << "The return value of getOstu is: " << th << endl;
+	cout << "The return value of opencv threshold is: " << threshold(img1, img1, 0, 255, CV_THRESH_OTSU);//opencv已实现的大津法  
+	for (int i = 0; i<img.rows; i++) {
+		for (int j = 0; j<img.cols; j++) {
+			if (img.data[i*img.step + j] <= th)
+				img.data[i*img.step + j] = 255;
+			else
+				img.data[i*img.step + j] = 0;
+		}
+	}
+	imshow("first_img", src);
+	imshow("Ostu_img", img);
+	imshow("Opencv_img", img1);
+	waitKey(0);
+	return 0;
+}
